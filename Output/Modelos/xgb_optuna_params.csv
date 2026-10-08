@@ -1,0 +1,2 @@
+max_depth,learning_rate,subsample,colsample_bytree,n_estimators,R2_promedio_CV
+9,0.04254257756108577,0.7513465525945733,0.8922662740560261,649,0.9242813778235528

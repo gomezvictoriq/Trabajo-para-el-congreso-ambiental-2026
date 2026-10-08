@@ -1,0 +1,431 @@
+---
+title: "Algoritmo para la estimación de la turbidez sobre el Río Paraná"
+
+
+freeze: auto
+
+
+format: 
+  html:
+    number-sections: true
+    toc: true
+    toc-location: left
+    embed-resources: true
+    crossrefs-hover: false
+    lang: es
+    bibliography: bibliografia/bibliografia.bib
+    csl: bibliografia/ieee.csl
+    theme: flatly
+    page-layout: full
+    css: styles/styles.css
+
+    
+
+date: last-modified
+author:
+  - name: Víctor Gustavo Gómez
+    corresponding: true
+    email: gomezvictoriq@ca.frre.utn.edu.ar
+    affiliations:
+      - name: GISTAQ (UTN-FRRe)
+        url: https://www.instagram.com/gistaq.utn/
+abstract: |
+  Este sitio web contiene información sobre la estimación de la turbidez por teledetección en la cuenca media del Río Paraná. 
+  La turbidez es uno parámetros de interés dentro proyecto Estimar indicadores de calidad de agua en la cuenca media del río Paraná para el desarrollo de un algoritmo mediante técnicas de teledetección satelital (MSECRE0008604), desarrollado por el Grupo de Investigación Sobre Temas Ambientales y Químicos (GISTAQ) de la Universidad Tecnológica Nacional Facultad Regional Resistencia (UTN-FRRe).
+
+  Se utilizarán imágenes del satélite Sentinel-2 con corrección automática, de las cuales se obtiene la reflectancia de superficie del agua. Se buscará la relación entre la reflectancia y la turbidez por métodos de regresión tradionales y machine learning. Una vez obtenido el algoritmo que relacione ambas propiedades, se desarrollaran mapas de distribución espacial.
+  
+keywords:
+  - GISTAQ
+  - UTN
+  - FRRe
+  - Algoritmo
+  - Turbidez
+  - Machine learning
+  - Teledetección
+---
+
+
+# Modelo XGBoost optimizado con Optuna (Búsqueda bayesiana inteligente)
+
+```{python}
+#| echo: false
+#| warning: false
+#| message: false
+#| eval: false
+#| label: entrenar_xgb_optuna
+
+# Entrenamiento del modelo 
+# SI SE CORRE ESTA CELDA CAMBIA EL MODELO!!!
+
+from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import r2_score, mean_squared_error
+import pandas as pd
+import numpy as np
+import optuna
+import os
+
+# Leer datos
+df = pd.read_csv("Output\csv\Turbidez-Bandas.csv")
+
+X = df[["B01","B02","B03","B04","B05","B06","B07","B08","B11","B12","B8A"]]
+y = df["turbidez"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, random_state=42)
+
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+def objective(trial):
+
+    params = {
+        'max_depth': trial.suggest_int('max_depth', 3, 10),
+        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+        'n_estimators': trial.suggest_int('n_estimators', 200, 800),
+        'random_state': 42
+    }
+
+    model = XGBRegressor(**params)
+    score = cross_val_score(model, X_train, y_train, scoring='r2', cv=5).mean()
+    return score
+
+study = optuna.create_study(direction='maximize')
+study.optimize(objective, n_trials=50)
+
+# Tabla con mejores hiperparámetros
+best_params_df = pd.DataFrame([study.best_params])
+best_params_df["R2_promedio_CV"] = study.best_value
+display(best_params_df)
+
+# Entrenar modelo final
+model = XGBRegressor(**study.best_params)
+model.fit(X_train, y_train)
+
+# Guardar modelo y parámetros
+ruta = "Output/Modelos"
+os.makedirs(ruta, exist_ok=True)
+
+model.save_model(os.path.join(ruta, "modelo_xgboost_optuna.json"))
+best_params_df.to_csv(os.path.join(ruta, "xgb_optuna_params.csv"), index=False)
+
+```
+
+Tabla con hiperparámetros optimizados
+
+```{python}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: tabla_optuna
+
+import pandas as pd
+
+params_path = "Output/Modelos/xgb_optuna_params.csv"
+
+best_params_df = pd.read_csv(params_path)
+
+best_params_df
+
+```
+
+Cargo modelo entrenado
+
+```{python}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: cargar_modelo_xgb_optuna
+
+# Carga el modelo entrenado
+
+from xgboost import XGBRegressor
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error
+
+# Cargar datos
+
+df = pd.read_csv("Output/csv/Turbidez-Bandas.csv")
+
+X = df[["B01","B02","B03","B04","B05","B06","B07","B08","B11","B12","B8A"]]
+y = df["turbidez"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+X, y, test_size=0.25, random_state=42
+)
+
+model = XGBRegressor()
+model.load_model("Output/Modelos/modelo_xgboost_optuna.json")
+
+# Predicciones
+
+y_train_pred = model.predict(X_train)
+y_test_pred = model.predict(X_test)
+
+# Métricas
+
+r2_train = r2_score(y_train, y_train_pred)
+rmse_train = np.sqrt(mean_squared_error(y_train, y_train_pred))
+
+r2_test = r2_score(y_test, y_test_pred)
+rmse_test = np.sqrt(mean_squared_error(y_test, y_test_pred))
+
+```
+
+Métricas de desempeño
+
+```{python}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: xgb_optuna_plot
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+plt.figure(figsize=(4.5, 4.5))
+
+plt.scatter(y_train, y_train_pred, color="#9D50A6", alpha=0.5,
+label="Datos de entrenamiento", marker='o')
+
+plt.scatter(y_test, y_test_pred, color="red", alpha=0.7,
+label="Datos de testeo", marker='^')
+
+min_val = min(np.min(y_train), np.min(y_test))
+max_val = max(np.max(y_train), np.max(y_test))
+
+plt.plot([min_val, max_val], [min_val, max_val], '--',
+color="#17A77E", lw=2, label="Línea ideal")
+
+coef = np.polyfit(y_test, y_test_pred, 1)
+x_t = np.linspace(min_val, max_val, 100)
+y_t = coef[0] * x_t + coef[1]
+plt.plot(x_t, y_t, '-', color='black', lw=2, label="Línea de tendencia (test)")
+
+plt.xlabel("Turbidez real (NTU)")
+plt.ylabel("Turbidez estimada (NTU)")
+
+plt.title(
+f"Modelo XGBoost optimizado (Optuna)\n"
+f"R² train: {r2_train:.3f}, RMSE:{rmse_train:.3f} | "
+f"R² test: {r2_test:.3f}, RMSE:{rmse_test:.3f}"
+)
+
+plt.legend()
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.tight_layout()
+plt.show()
+
+```
+
+**Mapas XGBoost Optuna**
+
+```{python}
+#| echo: false
+#| warning: false
+#| message: false
+
+import rasterio as rs
+import numpy as np
+import matplotlib.pyplot as plt
+import glob
+import os
+from skimage.filters import threshold_otsu
+import pandas as pd
+from xgboost import XGBRegressor
+
+# Cargar modelo XGBoost guardado
+model = XGBRegressor()
+model.load_model("Output/Modelos/modelo_xgboost_optuna.json")
+
+# --- Configuración ---
+carpeta = "Input/recorte_acolite"
+salida = "Output/tiff XGBoost Optuna"
+os.makedirs(salida, exist_ok=True)
+
+# Definir nombres de features (idénticos a entrenamiento)
+feature_names = ["B01", "B02", "B03", "B04", "B05",
+                 "B06", "B07", "B08", "B11", "B12", "B8A"]
+
+# Buscar todos los .tif
+tifs = sorted(glob.glob(os.path.join(carpeta, "*.tif")))
+print(f"Se procesaron {len(tifs)} archivos .tif")
+
+for ruta in tifs:
+    nombre = os.path.basename(ruta)
+    fecha = os.path.splitext(nombre)[0]
+    
+    with rs.open(ruta) as raster:
+        # Leer bandas
+        B01 = raster.read(1).astype(np.float32)
+        B02 = raster.read(2).astype(np.float32)
+        B03 = raster.read(3).astype(np.float32)
+        B04 = raster.read(4).astype(np.float32)
+        B05 = raster.read(5).astype(np.float32)
+        B06 = raster.read(6).astype(np.float32)
+        B07 = raster.read(7).astype(np.float32)
+        B08 = raster.read(8).astype(np.float32)
+        B8A = raster.read(9).astype(np.float32)
+        B11 = raster.read(10).astype(np.float32)
+        B12 = raster.read(11).astype(np.float32)
+
+        perfil = raster.profile
+
+    # --- NDWI y máscara de agua ---
+    ndwi = (B03 - B11) / (B03 + B11 + 1e-6)
+    umbral = np.nanmean(ndwi)
+    mascara = (ndwi > umbral).astype(np.uint8)
+
+    # --- Crear array de features ---
+    filas, cols = B03.shape
+    X_img = np.stack([B01, B02, B03, B04, B05,
+                      B06, B07, B08, B11, B12, B8A], axis=-1)
+    X_img_2d = X_img.reshape(-1, X_img.shape[-1])
+
+    # Convertir a DataFrame con nombres de columnas iguales al entrenamiento
+    X_img_2d_df = pd.DataFrame(X_img_2d, columns=feature_names)
+
+    # --- Predecir turbidez ---
+    turbidez_pred = model.predict(X_img_2d_df)
+    turbidez_pred = turbidez_pred.reshape(filas, cols)
+
+    # Aplicar máscara de agua
+    turbidez_agua = np.where(mascara == 1, turbidez_pred, np.nan)
+
+    # --- Exportar a GeoTIFF ---
+    salida_tif = os.path.join(salida, f"turbidez_{fecha}.tif")
+    perfil.update(dtype=rs.float32, count=1, compress='lzw', nodata=np.nan)
+    with rs.open(salida_tif, 'w', **perfil) as dst:
+        dst.write(turbidez_agua.astype(np.float32), 1)
+
+    # --- Percentiles para visualización ---
+    p5, p95 = np.nanpercentile(turbidez_agua, [5, 95])
+
+    # --- Gráfico ---
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4.5))
+    im1 = axes[0].imshow(mascara, cmap="Greys")
+    axes[0].set_title(f"Máscara de agua - {fecha}")
+    axes[0].axis("off")
+    cbar1 = fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+    cbar1.set_label("Agua (1) / No Agua (0)")
+
+    im2 = axes[1].imshow(turbidez_agua, cmap="rainbow", vmin=p5, vmax=p95)
+    axes[1].set_title(f"Turbidez (XGBoost) - {fecha}")
+    axes[1].axis("off")
+    cbar2 = fig.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
+    cbar2.set_label("Turbidez (NTU)")
+
+    plt.tight_layout()
+    plt.show()
+```
+
+# Relevancia de Bandas espectrales en el modelo XGBOOST
+
+La importancia de las bandas indica cuánto contribuye cada banda espectral (o combinación de ellas) al rendimiento del modelo.
+Esto permite saber cuáles longitudes de onda son más informativas para estimar la variable objetivo.
+
+Interpretación:
+
+Cuanto mayor sea la importancia, más influye esa banda en las divisiones del modelo.
+
+No necesariamente significa correlación directa (puede ser no lineal).
+
+Si una banda tiene muy baja importancia (≈0), puede eliminarse en futuras versiones del modelo para simplificarlo.
+
+Cuando entrenás un modelo como XGBoost, el algoritmo aprende qué variables (bandas espectrales) son más útiles para predecir la turbidez.
+
+• La importancia de las bandas indica cuánto aportó cada banda al modelo para mejorar sus predicciones.
+
+En XGBoost, el atributo model.feature_importances_ mide la importancia promedio de cada variable dentro de todos los árboles del modelo.
+
+XGBoost da la importancia relativa (no absoluta ni porcentual) basada en "weight".
+Los valores se normalizan para que la suma de todos sea 1.0.
+
+| Tipo de importancia (`importance_type`) | Qué mide exactamente                                           | Interpretación práctica                       |
+| --------------------------------------- | -------------------------------------------------------------- | --------------------------------------------- |
+| `"weight"` *(por defecto)*              | Número de veces que la variable fue usada para dividir nodos   | Bandas usadas más veces para tomar decisiones |
+| `"gain"`                                | Promedio de la mejora en la predicción al usar esa banda       | Cuánto “valor” aporta cada vez que se usa     |
+| `"cover"`                               | Promedio de la cantidad de datos afectados por esas divisiones | Qué tan general es su influencia              |
+| `"total_gain"` o `"total_cover"`        | Suma total de las métricas anteriores                          | Importancia acumulada 
+
+**Importancia de cada banda dentro del modelo XGBoost**
+
+```{python}
+
+#| echo: false
+#| warning: false
+#| message: false
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Obtener importancias del modelo entrenado
+importancias = model.feature_importances_
+
+# Crear DataFrame ordenado
+importancia_df = pd.DataFrame({
+    'Banda': X.columns,
+    'Importancia': importancias
+}).sort_values(by='Importancia', ascending=False)
+
+importancia_df = importancia_df.reset_index(drop=True)
+
+display(importancia_df)
+
+# Gráfico de barras ordenado
+plt.figure(figsize=(6, 4))
+plt.bar(importancia_df['Banda'], importancia_df['Importancia'], color='#2E86AB')
+plt.title('Importancia de las bandas en el modelo XGBoost')
+plt.xlabel('Banda')
+plt.ylabel('Importancia relativa')
+plt.xticks(rotation=45)
+plt.grid(axis='y', linestyle='--', alpha=0.5)
+plt.tight_layout()
+plt.show()
+
+```
+
+El análisis de importancia de características del modelo XGBoost optimizado muestra una dominancia muy marcada de la banda B05, que concentra cerca del 60% de la importancia total. Esto indica que, para el modelo, la información contenida en B05 es el factor más determinante para estimar la turbidez.
+
+En segundo lugar aparece la banda B06, con una importancia mucho menor pero aún relevante aproximadamente 15%.
+Después de estas dos, el resto de las bandas (B01, B02, B08, B8A, B07) aportan importancias moderadas y similares entre sí, lo que indica que contribuyen al modelo pero de forma secundaria.
+
+Por otro lado, algunas bandas como B03, B04, B11 y B12 tienen una importancia prácticamente nula, lo que sugiere que su aporte al modelo es mínimo. Esto podría deberse a que estas bandas no contienen información útil para diferenciar niveles de turbidez o dicha información está fuertemente correlacionada con otras bandas más relevantes.
+
+El modelo depende fuertemente de un conjunto reducido de bandas, especialmente B05.
+
+La alta concentración de importancia en pocas bandas sugiere que la señal espectral relacionada con la turbidez está localizada en rangos específicos del espectro.
+
+Las bandas con importancia mínima podrían ser candidatas para eliminación en futuros experimentos, lo que implicaría: 
+-Modelos más ligeros
+-Menor costo computacional
+-Potencialmente mejorar generalización al reducir ruido
+
+# Conclusión
+
+El análisis realizado demuestra que la estimación de turbidez a partir de bandas espectrales Sentinel-2 presenta un buen potencial predictivo, pero la capacidad del modelo depende fuertemente del tipo de algoritmo utilizado.
+
+El modelo lineal seleccionado inicialmente permitió explorar la relación entre cada banda y la turbidez, mostrando que ciertas longitudes de onda —especialmente B05, B06 y B08— concentran la mayor parte de la información relevante. Sin embargo, el comportamiento real del fenómeno es notablemente no lineal, con interacciones entre bandas que un modelo lineal no logra capturar completamente. Esto se reflejó en un desempeño aceptable pero limitado, donde el modelo tendió a subestimar valores altos de turbidez y a producir una mayor dispersión en las predicciones.
+
+En contraste, el XGBoost optimizado mediante Optuna mostró un salto significativo en capacidad predictiva. El proceso de optimización permitió ajustar hiperparámetros clave, logrando un modelo más robusto, con mejor generalización y con un ajuste más preciso tanto para los datos de entrenamiento como para los de testeo. Los indicadores R² y RMSE mejoraron sustancialmente respecto del modelo lineal, y esto se evidencia visualmente en el gráfico estimado vs real, donde la dispersión es mucho menor y la tendencia se ajusta mejor a la diagonal ideal.
+
+Además, el análisis de importancia de características del XGBoost confirma y profundiza lo detectado con el modelo lineal: las bandas del espectro rojo y NIR (especialmente B05) son determinantes para explicar la turbidez. Sin embargo, el modelo no lineal también asigna pequeñas contribuciones a otras bandas que, aunque individualmente débiles, aportan información útil cuando interactúan entre sí, lo que el modelo lineal no puede aprovechar.
+
+El modelo lineal es simple, interpretable y útil para comprender relaciones básicas entre bandas y turbidez, pero su precisión es limitada.
+
+El XGBoost optimizado ofrece una mejora clara en desempeño, captura relaciones no lineales y reduce significativamente el error, mostrando ser el enfoque más adecuado para el problema.
+
+La combinación de optimización automática (Optuna) y un algoritmo avanzado de ensamble permite obtener un modelo robusto y reproducible, adaptable a distintos conjuntos de datos y con potencial para implementarse operativamente.
+
+En conclusión, el modelo XGBoost optimizado se posiciona como la mejor alternativa para estimar turbidez a partir de productos satelitales Sentinel-2, superando ampliamente al modelo lineal tanto en precisión como en capacidad de generalización.
+
+# Documentación
+
+Modelo XGBoost: https://xgboost.ai
+
+Optimazador de hiper parámetro Optuna: https://optuna.org/

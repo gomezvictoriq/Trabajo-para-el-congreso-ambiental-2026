@@ -1,0 +1,24 @@
+meta:
+  name: Monitoreo 2026
+  css: "#quarto-sidebar-toc-left {border-right: 2px solid #e0e0e0; padding-right: 20px;margin-right: 20px;}"
+
+color:
+  palette:
+    brand-blue: "#1c84e5"
+    brand-dark: "#222222"
+  foreground: brand-dark
+  background: "#F3FAE3"
+  primary: brand-blue
+
+typography:
+  fonts:
+    - family: Roboto
+      source: google
+    - family: "Lilita One" 
+      source: google
+  base: Roboto
+  headings: "Lilita One"
+
+logo:
+  small: img\logo-gistaq.png
+  medium: img\logo-gistaq.png
